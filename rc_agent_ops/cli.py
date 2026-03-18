@@ -185,9 +185,7 @@ def risk_show(subscriber_id: str):
     table.add_column("Reason")
 
     for evt in history:
-        ts = datetime.fromtimestamp(evt.ts, tz=timezone.utc).strftime(
-            "%m-%d %H:%M"
-        )
+        ts = datetime.fromtimestamp(evt.ts, tz=timezone.utc).strftime("%m-%d %H:%M")
         c = risk_colors.get(evt.risk.value, "white")
         table.add_row(ts, f"[{c}]{evt.risk.value}[/{c}]", evt.reason)
 
@@ -223,9 +221,7 @@ def risk_list():
 def risk_mark(
     subscriber_id: str,
     risk: str,
-    reason: str = typer.Option(
-        "manual", "--reason", help="Reason for risk change"
-    ),
+    reason: str = typer.Option("manual", "--reason", help="Reason for risk change"),
 ):
     """Manually set risk state for a subscriber."""
     from .risk import RiskTracker, SubscriberRisk
@@ -237,8 +233,7 @@ def risk_mark(
         risk_level = SubscriberRisk(risk.upper())
     except ValueError:
         rprint(
-            f"[red]Invalid risk level: {risk}. "
-            "Use CLEAN, SUSPECTED, or BLOCKED.[/red]"
+            f"[red]Invalid risk level: {risk}. Use CLEAN, SUSPECTED, or BLOCKED.[/red]"
         )
         raise typer.Exit(1)
 
@@ -247,8 +242,7 @@ def risk_mark(
         risk_level.value, "white"
     )
     rprint(
-        f"Marked [bold]{subscriber_id}[/bold] as "
-        f"[{color}]{risk_level.value}[/{color}]"
+        f"Marked [bold]{subscriber_id}[/bold] as [{color}]{risk_level.value}[/{color}]"
     )
 
 

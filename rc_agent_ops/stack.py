@@ -29,9 +29,7 @@ class BillingStack:
             cache_ttl=config.entitlement_cache_ttl,
         )
         if config.risk_db_path:
-            self.risk_tracker: RiskTracker | None = RiskTracker(
-                config.risk_db_path
-            )
+            self.risk_tracker: RiskTracker | None = RiskTracker(config.risk_db_path)
         else:
             self.risk_tracker = None
 

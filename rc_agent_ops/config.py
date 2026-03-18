@@ -53,9 +53,7 @@ class AgentOpsConfig:
             audit_db_path=overrides.get(
                 "audit_db_path", os.environ.get("RCOPS_AUDIT_DB")
             ),
-            risk_db_path=overrides.get(
-                "risk_db_path", os.environ.get("RCOPS_RISK_DB")
-            ),
+            risk_db_path=overrides.get("risk_db_path", os.environ.get("RCOPS_RISK_DB")),
             **{
                 k: v
                 for k, v in overrides.items()

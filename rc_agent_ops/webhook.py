@@ -17,9 +17,7 @@ _EVENT_RISK_MAP: dict[str, SubscriberRisk] = {
 
 
 class RCWebhookHandler:
-    def __init__(
-        self, risk_tracker: RiskTracker, auth_key: str | None = None
-    ) -> None:
+    def __init__(self, risk_tracker: RiskTracker, auth_key: str | None = None) -> None:
         self.risk_tracker = risk_tracker
         self.auth_key = auth_key
 
@@ -79,28 +77,17 @@ def make_webhook_router(handler: RCWebhookHandler):
         try:
             payload = await request.json()
         except Exception:
-            return JSONResponse(
-                {"error": "malformed payload"}, status_code=400
-            )
+            return JSONResponse({"error": "malformed payload"}, status_code=400)
 
         event = payload.get("event", {})
         if not event.get("type"):
-            return JSONResponse(
-                {"error": "missing event.type"}, status_code=400
-            )
+            return JSONResponse({"error": "missing event.type"}, status_code=400)
 
         if handler.auth_key:
             sig = request.headers.get("RC-Billing-Signature", "")
-            result = handler.handle_with_auth(
-                payload, signature=sig, raw_body=raw_body
-            )
-            if (
-                not result["processed"]
-                and "signature" in result.get("reason", "")
-            ):
-                return JSONResponse(
-                    {"error": "invalid signature"}, status_code=401
-                )
+            result = handler.handle_with_auth(payload, signature=sig, raw_body=raw_body)
+            if not result["processed"] and "signature" in result.get("reason", ""):
+                return JSONResponse({"error": "invalid signature"}, status_code=401)
             return result
 
         return handler.handle(payload)

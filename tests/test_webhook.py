@@ -76,9 +76,7 @@ def test_webhook_auth_valid(tracker):
     handler = RCWebhookHandler(risk_tracker=tracker, auth_key=auth_key)
     body = json.dumps(_payload("RENEWAL")).encode()
     sig = hmac.new(auth_key.encode(), body, hashlib.sha256).hexdigest()
-    result = handler.handle_with_auth(
-        _payload("RENEWAL"), signature=sig, raw_body=body
-    )
+    result = handler.handle_with_auth(_payload("RENEWAL"), signature=sig, raw_body=body)
     assert result["processed"] is True
 
 

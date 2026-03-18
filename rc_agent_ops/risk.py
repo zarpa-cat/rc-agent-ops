@@ -32,8 +32,7 @@ class RiskTracker:
 
     def mark(self, subscriber_id: str, risk: SubscriberRisk, reason: str) -> None:
         self._conn.execute(
-            "INSERT INTO risk_events(subscriber_id, risk, reason, ts) "
-            "VALUES(?,?,?,?)",
+            "INSERT INTO risk_events(subscriber_id, risk, reason, ts) VALUES(?,?,?,?)",
             (subscriber_id, risk.value, reason, time.time()),
         )
         self._conn.commit()
@@ -54,9 +53,7 @@ class RiskTracker:
             "WHERE subscriber_id=? ORDER BY id DESC LIMIT ?",
             (subscriber_id, limit),
         ).fetchall()
-        return [
-            RiskEvent(r[0], SubscriberRisk(r[1]), r[2], r[3]) for r in rows
-        ]
+        return [RiskEvent(r[0], SubscriberRisk(r[1]), r[2], r[3]) for r in rows]
 
     def list_at_risk(self) -> list[tuple[str, SubscriberRisk]]:
         rows = self._conn.execute(

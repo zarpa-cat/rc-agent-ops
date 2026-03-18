@@ -1,4 +1,5 @@
 """Phase 4 tests: force_refresh, async entitlement check, SUSPECTED fix, op telemetry."""
+
 from __future__ import annotations
 
 import asyncio
@@ -59,9 +60,7 @@ def test_no_force_refresh_does_not_invalidate(stack):
 
     with (
         patch.object(stack.entitlement_client.cache, "invalidate") as mock_invalidate,
-        patch.object(
-            stack.entitlement_client, "check", return_value=mock_result
-        ),
+        patch.object(stack.entitlement_client, "check", return_value=mock_result),
     ):
         stack.check_entitlement("user_1")
 
@@ -110,9 +109,7 @@ def test_suspected_subscriber_denied_when_check_fails(config):
 
     with (
         patch.object(stack.entitlement_client.cache, "invalidate"),
-        patch.object(
-            stack.entitlement_client, "check", return_value=mock_result
-        ),
+        patch.object(stack.entitlement_client, "check", return_value=mock_result),
     ):
         result = stack.check_entitlement("user_1")
 
@@ -130,9 +127,7 @@ async def test_check_entitlement_async_returns_bool(stack):
     mock_result = MagicMock()
     mock_result.granted = True
 
-    with patch.object(
-        stack.entitlement_client, "check", return_value=mock_result
-    ):
+    with patch.object(stack.entitlement_client, "check", return_value=mock_result):
         result = await stack.check_entitlement_async("user_1")
 
     assert result is True
@@ -146,9 +141,7 @@ async def test_check_entitlement_async_force_refresh(stack):
 
     with (
         patch.object(stack.entitlement_client.cache, "invalidate") as mock_invalidate,
-        patch.object(
-            stack.entitlement_client, "check", return_value=mock_result
-        ),
+        patch.object(stack.entitlement_client, "check", return_value=mock_result),
     ):
         result = await stack.check_entitlement_async("user_1", force_refresh=True)
 
@@ -187,9 +180,7 @@ async def test_agent_ops_tracks_operation_records(stack):
 
     with (
         patch.object(stack, "meter_for", return_value=mock_meter),
-        patch.object(
-            stack.entitlement_client, "check", return_value=mock_result
-        ),
+        patch.object(stack.entitlement_client, "check", return_value=mock_result),
         patch.object(stack, "sync_to_churnwall", new=AsyncMock()) as mock_sync,
     ):
         async with AgentOps(stack, "user_1") as ops:
@@ -277,6 +268,8 @@ async def test_sync_to_churnwall_no_body_when_no_ops(config):
 # ---------------------------------------------------------------------------
 
 if not hasattr(asyncio, "noop"):
+
     async def _noop():
         return None
+
     asyncio.noop = _noop  # type: ignore[attr-defined]
