@@ -262,6 +262,94 @@ rcops audit --op infer --hours 1       # last hour of "infer" ops
 rcops audit -n 50 --json               # JSON output
 ```
 
+## Phase 3: Subscriber Risk Tracker + RC Webhook Integration
+
+### RiskTracker
+
+SQLite-backed reactive risk layer that tracks subscriber billing risk state:
+
+```python
+from rc_agent_ops import RiskTracker, SubscriberRisk
+
+tracker = RiskTracker(db_path="risk.db")  # or ":memory:" for testing
+
+# Mark risk state
+tracker.mark("user_123", SubscriberRisk.SUSPECTED, "billing issue detected")
+tracker.mark("user_456", SubscriberRisk.BLOCKED, "subscription expired")
+
+# Query risk state
+tracker.get("user_123")         # → SubscriberRisk.SUSPECTED
+tracker.get("unknown_user")     # → SubscriberRisk.CLEAN (default)
+
+# View history and at-risk subscribers
+tracker.history("user_123")     # → list[RiskEvent] (reverse chronological)
+tracker.list_at_risk()          # → list[(subscriber_id, SubscriberRisk)]
+```
+
+Risk levels: `CLEAN` (no issues), `SUSPECTED` (billing issue detected), `BLOCKED` (expired/cancelled).
+
+### BillingStack Risk Integration
+
+When a `RiskTracker` is configured, `BillingStack.check_entitlement()` uses risk state:
+
+- **BLOCKED** → returns `False` immediately (no RC API call)
+- **SUSPECTED** → bypasses entitlement cache (forces fresh RC API check)
+- **CLEAN** → normal cached entitlement check
+
+```python
+config = AgentOpsConfig(
+    rc_api_key="sk_...",
+    entitlement_id="pro_access",
+    risk_db_path="risk.db",  # enables risk tracking
+)
+# Or via env: export RCOPS_RISK_DB=risk.db
+```
+
+### RC Webhook Handler
+
+Process RevenueCat webhook events to automatically update subscriber risk:
+
+```python
+from rc_agent_ops import RiskTracker, RCWebhookHandler, make_webhook_router
+from fastapi import FastAPI
+
+tracker = RiskTracker(db_path="risk.db")
+handler = RCWebhookHandler(
+    risk_tracker=tracker,
+    auth_key="your_rc_webhook_secret",  # optional HMAC-SHA256 verification
+)
+
+app = FastAPI()
+app.include_router(make_webhook_router(handler))
+# POST /webhook/rc now processes RC events
+```
+
+Event type mapping:
+| RC Event | Risk Level |
+|---|---|
+| `BILLING_ISSUE_DETECTED_FOR_CUSTOMER` | SUSPECTED |
+| `EXPIRATION` | BLOCKED |
+| `CANCELLATION` | BLOCKED |
+| `RENEWAL` | CLEAN |
+| `UNCANCELLATION` | CLEAN |
+| `INITIAL_PURCHASE` | CLEAN |
+
+### CLI — risk commands
+
+```bash
+# Show risk state and history for a subscriber
+rcops risk show user_123
+
+# List all subscribers with risk != CLEAN
+rcops risk list
+
+# Manually set risk state (for testing/admin)
+rcops risk mark user_123 BLOCKED --reason "manual block"
+rcops risk mark user_123 CLEAN --reason "resolved"
+```
+
+Requires `RCOPS_RISK_DB` env var to point to the risk database file.
+
 ## License
 
 MIT

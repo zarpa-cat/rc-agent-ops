@@ -156,5 +156,101 @@ def audit(
     console.print(table)
 
 
+risk_app = typer.Typer(help="Subscriber risk management")
+app.add_typer(risk_app, name="risk")
+
+
+@risk_app.command("show")
+def risk_show(subscriber_id: str):
+    """Show current risk state and recent history for a subscriber."""
+    from .risk import RiskTracker
+
+    db_path = os.environ.get("RCOPS_RISK_DB", ":memory:")
+    tracker = RiskTracker(db_path)
+    current = tracker.get(subscriber_id)
+    history = tracker.history(subscriber_id)
+
+    risk_colors = {"CLEAN": "green", "SUSPECTED": "yellow", "BLOCKED": "red"}
+    color = risk_colors.get(current.value, "white")
+    rprint(f"[bold]Subscriber:[/bold] {subscriber_id}")
+    rprint(f"[bold]Risk:[/bold] [{color}]{current.value}[/{color}]")
+
+    if not history:
+        rprint("[dim]No risk history.[/dim]")
+        return
+
+    table = Table(title="Risk History", box=box.ROUNDED)
+    table.add_column("Time", style="dim")
+    table.add_column("Risk")
+    table.add_column("Reason")
+
+    for evt in history:
+        ts = datetime.fromtimestamp(evt.ts, tz=timezone.utc).strftime(
+            "%m-%d %H:%M"
+        )
+        c = risk_colors.get(evt.risk.value, "white")
+        table.add_row(ts, f"[{c}]{evt.risk.value}[/{c}]", evt.reason)
+
+    console.print(table)
+
+
+@risk_app.command("list")
+def risk_list():
+    """Show all subscribers with risk != CLEAN."""
+    from .risk import RiskTracker
+
+    db_path = os.environ.get("RCOPS_RISK_DB", ":memory:")
+    tracker = RiskTracker(db_path)
+    at_risk = tracker.list_at_risk()
+
+    if not at_risk:
+        rprint("[dim]No subscribers at risk.[/dim]")
+        return
+
+    table = Table(title="At-Risk Subscribers", box=box.ROUNDED)
+    table.add_column("Subscriber")
+    table.add_column("Risk")
+
+    risk_colors = {"CLEAN": "green", "SUSPECTED": "yellow", "BLOCKED": "red"}
+    for sub_id, risk in at_risk:
+        c = risk_colors.get(risk.value, "white")
+        table.add_row(sub_id, f"[{c}]{risk.value}[/{c}]")
+
+    console.print(table)
+
+
+@risk_app.command("mark")
+def risk_mark(
+    subscriber_id: str,
+    risk: str,
+    reason: str = typer.Option(
+        "manual", "--reason", help="Reason for risk change"
+    ),
+):
+    """Manually set risk state for a subscriber."""
+    from .risk import RiskTracker, SubscriberRisk
+
+    db_path = os.environ.get("RCOPS_RISK_DB", ":memory:")
+    tracker = RiskTracker(db_path)
+
+    try:
+        risk_level = SubscriberRisk(risk.upper())
+    except ValueError:
+        rprint(
+            f"[red]Invalid risk level: {risk}. "
+            "Use CLEAN, SUSPECTED, or BLOCKED.[/red]"
+        )
+        raise typer.Exit(1)
+
+    tracker.mark(subscriber_id, risk_level, reason)
+    color = {"CLEAN": "green", "SUSPECTED": "yellow", "BLOCKED": "red"}.get(
+        risk_level.value, "white"
+    )
+    rprint(
+        f"Marked [bold]{subscriber_id}[/bold] as "
+        f"[{color}]{risk_level.value}[/{color}]"
+    )
+
+
 if __name__ == "__main__":
     app()

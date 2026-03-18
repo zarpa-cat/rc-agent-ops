@@ -25,6 +25,7 @@ class AgentOpsConfig:
     entitlement_cache_ttl: int = 300
     spend_policy: SpendPolicyConfig | None = None
     audit_db_path: str | None = None
+    risk_db_path: str | None = None
 
     def __post_init__(self):
         if not self.rc_api_key:
@@ -52,6 +53,9 @@ class AgentOpsConfig:
             audit_db_path=overrides.get(
                 "audit_db_path", os.environ.get("RCOPS_AUDIT_DB")
             ),
+            risk_db_path=overrides.get(
+                "risk_db_path", os.environ.get("RCOPS_RISK_DB")
+            ),
             **{
                 k: v
                 for k, v in overrides.items()
@@ -62,6 +66,7 @@ class AgentOpsConfig:
                     "currency",
                     "churnwall_url",
                     "audit_db_path",
+                    "risk_db_path",
                 )
             },
         )

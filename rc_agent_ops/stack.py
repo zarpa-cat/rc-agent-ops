@@ -1,8 +1,9 @@
 import httpx
-from rc_entitlement_gate import RCEntitlementClient, CheckResult
+from rc_entitlement_gate import RCEntitlementClient
 from agent_billing_meter import BillingMeter, BudgetedMeter, PolicyMeter, SpendPolicy
 
 from .config import AgentOpsConfig
+from .risk import RiskTracker, SubscriberRisk
 
 
 class BillingStack:
@@ -12,6 +13,12 @@ class BillingStack:
             api_key=config.rc_api_key,
             cache_ttl=config.entitlement_cache_ttl,
         )
+        if config.risk_db_path:
+            self.risk_tracker: RiskTracker | None = RiskTracker(
+                config.risk_db_path
+            )
+        else:
+            self.risk_tracker = None
 
     def _make_spend_policy(self) -> SpendPolicy | None:
         if self.config.spend_policy is None:
@@ -46,7 +53,18 @@ class BillingStack:
         return BillingMeter(**common_kwargs)
 
     def check_entitlement(self, subscriber_id: str) -> bool:
-        result: CheckResult = self.entitlement_client.check(
+        if self.risk_tracker is not None:
+            risk = self.risk_tracker.get(subscriber_id)
+            if risk == SubscriberRisk.BLOCKED:
+                return False
+            if risk == SubscriberRisk.SUSPECTED:
+                fresh = self.entitlement_client.check(
+                    subscriber_id=subscriber_id,
+                    entitlement=self.config.entitlement_id,
+                    use_cache=False,
+                )
+                return fresh.granted
+        result = self.entitlement_client.check(
             subscriber_id=subscriber_id,
             entitlement=self.config.entitlement_id,
         )
