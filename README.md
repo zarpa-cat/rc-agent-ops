@@ -190,6 +190,78 @@ Part of the [zarpa-cat](https://github.com/zarpa-cat) agent billing toolkit.
 
 ---
 
+
+## Phase 2: FastAPI Middleware + SpendPolicy + `rcops audit`
+
+### FastAPI Middleware
+
+Automatic entitlement + billing enforcement on any Starlette/FastAPI app:
+
+```python
+from fastapi import FastAPI
+from rc_agent_ops import AgentOpsConfig, SpendPolicyConfig
+from rc_agent_ops.middleware import AgentOpsMiddleware
+
+app = FastAPI()
+app.add_middleware(
+    AgentOpsMiddleware,
+    config=AgentOpsConfig(
+        rc_api_key="sk_...",
+        entitlement_id="pro_access",
+        spend_policy=SpendPolicyConfig(max_per_hour=500, max_per_day=2000),
+    ),
+    subscriber_id_header="X-Subscriber-Id",  # default
+    op_cost=1,                                # credits per request
+    skip_paths=["/health", "/metrics"],       # bypass billing
+)
+```
+
+- Routes without `X-Subscriber-Id` pass through unchanged.
+- Missing or denied entitlement → `402 Payment Required`.
+- Billing fires **after** success (2xx only). Errors are never billed.
+- Churnwall sync is fire-and-forget after each successful request.
+
+### SpendPolicy
+
+Enforce pre-flight credit limits before any RC API call:
+
+```python
+from rc_agent_ops import AgentOpsConfig, SpendPolicyConfig
+
+config = AgentOpsConfig(
+    rc_api_key="sk_...",
+    entitlement_id="pro_access",
+    spend_policy=SpendPolicyConfig(
+        max_per_hour=500,       # global rolling 1h cap
+        max_per_day=2000,       # global rolling 24h cap
+        op_max_per_call={"infer": 50},  # per-call cap by op
+        blocked_ops=["admin"],  # always deny these
+    ),
+)
+```
+
+When a policy is set, `BillingStack.meter_for()` returns a `PolicyMeter` automatically.
+
+### `AgentOpsConfig.from_env()`
+
+```python
+config = AgentOpsConfig.from_env()  # reads RC_API_KEY, RC_ENTITLEMENT_ID, etc.
+config = AgentOpsConfig.from_env(spend_policy=SpendPolicyConfig(max_per_hour=500))
+```
+
+### CLI — new commands
+
+```bash
+# Check stack connectivity
+rcops health
+
+# Show billing audit log
+rcops audit                            # last 20 entries (all subscribers)
+rcops audit user_123                   # filter by subscriber
+rcops audit --op infer --hours 1       # last hour of "infer" ops
+rcops audit -n 50 --json               # JSON output
+```
+
 ## License
 
 MIT
