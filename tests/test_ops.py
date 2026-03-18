@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -31,8 +31,10 @@ async def test_agent_ops_run_success(stack):
 
     with (
         patch.object(stack, "meter_for", return_value=mock_meter),
-        patch.object(stack, "check_entitlement", return_value=True),
-        patch.object(stack, "sync_to_churnwall", new_callable=AsyncMock),
+        patch.object(
+            stack, "check_entitlement_async", new=AsyncMock(return_value=True)
+        ),
+        patch.object(stack, "sync_to_churnwall", new=AsyncMock()),
     ):
         async with AgentOps(stack, "user_123") as ops:
             result = await ops.run("summarize", lambda: async_return("done"))
@@ -49,8 +51,10 @@ async def test_agent_ops_default_cost(stack):
 
     with (
         patch.object(stack, "meter_for", return_value=mock_meter),
-        patch.object(stack, "check_entitlement", return_value=True),
-        patch.object(stack, "sync_to_churnwall", new_callable=AsyncMock),
+        patch.object(
+            stack, "check_entitlement_async", new=AsyncMock(return_value=True)
+        ),
+        patch.object(stack, "sync_to_churnwall", new=AsyncMock()),
     ):
         async with AgentOps(stack, "user_123") as ops:
             await ops.run("unknown_op", lambda: async_return("ok"))
@@ -59,36 +63,40 @@ async def test_agent_ops_default_cost(stack):
 
 @pytest.mark.asyncio
 async def test_agent_ops_entitlement_denied(stack):
+    """EntitlementDenied is now raised in __aenter__, not deferred to run()."""
     mock_meter = AsyncMock()
     mock_meter.__aenter__ = AsyncMock(return_value=mock_meter)
     mock_meter.__aexit__ = AsyncMock(return_value=False)
 
     with (
         patch.object(stack, "meter_for", return_value=mock_meter),
-        patch.object(stack, "check_entitlement", return_value=False),
+        patch.object(
+            stack, "check_entitlement_async", new=AsyncMock(return_value=False)
+        ),
     ):
-        async with AgentOps(stack, "user_123") as ops:
-            with pytest.raises(EntitlementDenied):
-                await ops.run("summarize", lambda: async_return("nope"))
+        with pytest.raises(EntitlementDenied):
+            async with AgentOps(stack, "user_123"):
+                pass  # Should never reach here
 
 
 @pytest.mark.asyncio
-async def test_agent_ops_caches_entitlement(stack):
+async def test_agent_ops_entitlement_checked_once(stack):
+    """Entitlement is checked once in __aenter__; run() uses cached result."""
     mock_meter = AsyncMock()
     mock_meter.__aenter__ = AsyncMock(return_value=mock_meter)
     mock_meter.__aexit__ = AsyncMock(return_value=False)
     mock_meter.debit = AsyncMock()
 
-    check_mock = MagicMock(return_value=True)
+    check_mock = AsyncMock(return_value=True)
     with (
         patch.object(stack, "meter_for", return_value=mock_meter),
-        patch.object(stack, "check_entitlement", check_mock),
-        patch.object(stack, "sync_to_churnwall", new_callable=AsyncMock),
+        patch.object(stack, "check_entitlement_async", new=check_mock),
+        patch.object(stack, "sync_to_churnwall", new=AsyncMock()),
     ):
         async with AgentOps(stack, "user_123") as ops:
             await ops.run("op1", lambda: async_return("a"))
             await ops.run("op2", lambda: async_return("b"))
-            # Entitlement should only be checked once
+            # Entitlement checked once in __aenter__, not per run()
             assert check_mock.call_count == 1
 
 
@@ -101,8 +109,10 @@ async def test_agent_op_decorator(stack):
 
     with (
         patch.object(stack, "meter_for", return_value=mock_meter),
-        patch.object(stack, "check_entitlement", return_value=True),
-        patch.object(stack, "sync_to_churnwall", new_callable=AsyncMock),
+        patch.object(
+            stack, "check_entitlement_async", new=AsyncMock(return_value=True)
+        ),
+        patch.object(stack, "sync_to_churnwall", new=AsyncMock()),
     ):
 
         @agent_op(stack, "user_123", "translate", cost=3)

@@ -1,9 +1,24 @@
+from __future__ import annotations
+
+import asyncio
+import time
+from dataclasses import dataclass, field
+
 import httpx
 from rc_entitlement_gate import RCEntitlementClient
 from agent_billing_meter import BillingMeter, BudgetedMeter, PolicyMeter, SpendPolicy
 
 from .config import AgentOpsConfig
 from .risk import RiskTracker, SubscriberRisk
+
+
+@dataclass
+class OperationRecord:
+    """Record of a single billed operation within an AgentOps session."""
+
+    op_name: str
+    cost: int
+    ts: float = field(default_factory=time.time)
 
 
 class BillingStack:
@@ -36,7 +51,7 @@ class BillingStack:
     def meter_for(
         self, subscriber_id: str
     ) -> BillingMeter | BudgetedMeter | PolicyMeter:
-        common_kwargs = dict(
+        common_kwargs: dict = dict(
             api_key=self.config.rc_api_key,
             app_user_id=subscriber_id,
             currency=self.config.currency,
@@ -52,31 +67,84 @@ class BillingStack:
             return BudgetedMeter(budget=self.config.budget_per_session, **common_kwargs)
         return BillingMeter(**common_kwargs)
 
-    def check_entitlement(self, subscriber_id: str) -> bool:
+    def _invalidate_entitlement_cache(self, subscriber_id: str) -> None:
+        """Remove subscriber's cached entitlement data, forcing a fresh RC fetch."""
+        cache_key = self.entitlement_client.cache._cache_key(subscriber_id)
+        self.entitlement_client.cache.invalidate(cache_key)
+
+    def check_entitlement(
+        self, subscriber_id: str, force_refresh: bool = False
+    ) -> bool:
+        """Check if a subscriber is entitled.
+
+        Args:
+            subscriber_id: The subscriber to check.
+            force_refresh: If True, bypass the entitlement cache and fetch
+                fresh data from RevenueCat. Use this when you have reason to
+                believe the cached result is stale (e.g., after a webhook event).
+        """
+        if force_refresh:
+            self._invalidate_entitlement_cache(subscriber_id)
+
         if self.risk_tracker is not None:
             risk = self.risk_tracker.get(subscriber_id)
             if risk == SubscriberRisk.BLOCKED:
                 return False
             if risk == SubscriberRisk.SUSPECTED:
-                fresh = self.entitlement_client.check(
+                # Always bypass cache for suspected subscribers — their billing
+                # status may have changed since the cache was populated.
+                self._invalidate_entitlement_cache(subscriber_id)
+                result = self.entitlement_client.check(
                     subscriber_id=subscriber_id,
                     entitlement=self.config.entitlement_id,
-                    use_cache=False,
                 )
-                return fresh.granted
+                return result.granted
+
         result = self.entitlement_client.check(
             subscriber_id=subscriber_id,
             entitlement=self.config.entitlement_id,
         )
         return result.granted
 
-    async def sync_to_churnwall(self, subscriber_id: str) -> None:
+    async def check_entitlement_async(
+        self, subscriber_id: str, force_refresh: bool = False
+    ) -> bool:
+        """Async variant of check_entitlement.
+
+        Wraps the sync entitlement check in asyncio.to_thread() so callers
+        in async contexts don't block the event loop during the RC API call.
+        """
+        return await asyncio.to_thread(
+            self.check_entitlement, subscriber_id, force_refresh
+        )
+
+    async def sync_to_churnwall(
+        self,
+        subscriber_id: str,
+        ops: list[OperationRecord] | None = None,
+    ) -> None:
+        """Trigger a churnwall sync for the subscriber.
+
+        Args:
+            subscriber_id: The subscriber to sync.
+            ops: Optional list of operation records from this session. If
+                provided, they are included in the sync payload so churnwall
+                can build an event-level audit trail without a separate RC
+                fetch.
+        """
         if not self.config.churnwall_url:
             return
+        payload: dict = {}
+        if ops:
+            payload["ops"] = [
+                {"op_name": r.op_name, "cost": r.cost, "ts": r.ts} for r in ops
+            ]
+            payload["total_cost"] = sum(r.cost for r in ops)
         async with httpx.AsyncClient() as client:
             try:
                 await client.post(
                     f"{self.config.churnwall_url.rstrip('/')}/api/v1/subscribers/{subscriber_id}/sync",
+                    json=payload or None,
                     timeout=5.0,
                 )
             except (httpx.RequestError, httpx.HTTPStatusError):
